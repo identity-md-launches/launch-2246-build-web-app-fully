@@ -1,0 +1,117 @@
+/* Design tokens. Components reference the semantic tokens only. */
+:root {
+  --gray-950: #111317;
+  --gray-900: #171a1f;
+  --gray-850: #1d2027;
+  --gray-800: #252932;
+  --gray-700: #343a46;
+  --gray-400: #a3abb8;
+  --gray-100: #eef0f3;
+  --red-500: #e5484d;
+  --red-300: #ff8589;
+  --green-500: #30a46c;
+  --green-300: #5bd697;
+  --gold-400: #f0b429;
+  --gold-200: #ffd98a;
+  --blue-300: #8fb0ff;
+
+  --color-bg: var(--gray-950);
+  --color-surface: var(--gray-900);
+  --color-surface-raised: var(--gray-850);
+  --color-surface-hover: var(--gray-800);
+  --color-border: var(--gray-700);
+  --color-text: var(--gray-100);
+  --color-text-secondary: var(--gray-400);
+  --color-left: var(--red-500);
+  --color-left-text: var(--red-300);
+  --color-right: var(--green-500);
+  --color-right-text: var(--green-300);
+  --color-accent: var(--gold-400);
+  --color-accent-text: var(--gold-200);
+  --color-on-accent: var(--gray-950);
+  --color-focus: var(--blue-300);
+
+  --fs-xs: 0.8125rem;
+  --fs-sm: 0.9375rem;
+  --fs-md: 1.0625rem;
+  --fs-lg: 1.25rem;
+  --fs-xl: 1.625rem;
+  --fs-2xl: 2.125rem;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.4), 0 6px 20px rgb(0 0 0 / 0.25);
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 100%;
+  line-height: 1.5;
+  color: var(--color-text);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-width: 320px;
+  font-size: var(--fs-sm);
+}
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+h1,
+h2,
+h3 {
+  line-height: 1.15;
+  text-wrap: balance;
+}
+p {
+  text-wrap: pretty;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+a {
+  color: var(--color-accent-text);
+}
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
