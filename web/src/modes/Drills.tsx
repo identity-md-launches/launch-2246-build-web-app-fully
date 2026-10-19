@@ -6,11 +6,12 @@ import { mulberry32, type Rng } from '../sim/prng';
 import type { Choice, PhraseResult } from '../sim/types';
 import { leitnerWeight, useProgress, type DrillName } from '../store/progress';
 import { useSettings } from '../store/settings';
-import { Lamps, Segmented } from '../ui/components';
+import { Lamps, RefereeCall, Segmented, Transport } from '../ui/components';
 import { Player, usePlayerTick } from '../ui/player';
 import { Stage } from '../ui/Stage';
 import s from '../ui/ui.module.css';
 import { baseConfig, demoFor, measureValue } from './demo';
+import { buildPreview, buildSituation, isBuildSequenceCorrect, playBuildSequence, type BuildSituation } from './buildSequence';
 
 const ROUNDS = 10;
 const DRILLS: { id: DrillName; name: string; text: string }[] = [
@@ -26,6 +27,7 @@ interface Round {
   result: PhraseResult;
   techId: string;
   explain: string;
+  build?: BuildSituation;
 }
 
 function weightedTech(rng: Rng, boxes: Record<string, number>, pool: Technique[]): Technique {
@@ -92,20 +94,20 @@ export function makeRound(drill: DrillName, rng: Rng, boxes: Record<string, numb
       explain: `${r.verdict.callFr}: ${r.verdict.why}`,
     };
   }
-  // Build It: a tactical situation; the right answer is a preparation followed by a reliable counter.
-  const pool = TECHNIQUES.filter((x) => (x.category === 'parry' || x.category === 'attack') && x.counteredBy.some((c) => c.reliability === 'reliable' && TECHNIQUE_BY_ID[c.id].category === 'attack'));
+  // Build It starts at the edge of measure. The visitor chooses and orders individual actions.
+  const pool = ['PA01', 'PA02', 'PA03', 'PA04', 'PA09', 'PA10'].map((id) => TECHNIQUE_BY_ID[id]);
   const t = weightedTech(rng, boxes, pool);
-  const good = t.counteredBy.filter((c) => c.reliability === 'reliable' && TECHNIQUE_BY_ID[c.id].category === 'attack')[0];
-  const correct = `Advance to lunge distance, then ${TECHNIQUE_BY_ID[good.id].name}`;
-  const wrongs = shuffle(rng, TECHNIQUES.filter((x) => x.category === 'attack' && x.id !== good.id && !t.counteredBy.some((c) => c.id === x.id)))
-    .slice(0, 2)
-    .map((x) => `Advance to lunge distance, then ${x.name}`);
+  const finishers = t.counteredBy.filter((c) => c.reliability === 'reliable' && TECHNIQUE_BY_ID[c.id].category === 'attack');
+  const good = finishers[Math.floor(rng() * finishers.length)];
+  const build = buildSituation(t.id, good.id);
+  build.cards = shuffle(rng, build.cards);
   return {
-    prompt: `Your opponent answers every attack with the ${t.name}. Build the sequence that beats it.`,
-    options: shuffle(rng, [correct, ...wrongs, `Retreat out of distance, then ${TECHNIQUE_BY_ID[good.id].name}`]).map((l) => ({ label: l, correct: l === correct })),
-    result: demoFor(good.id, cfg),
+    prompt: `You are one advance beyond lunge distance. Your opponent waits, then commits to ${t.name}. Build a preparation and finish that beat it.`,
+    options: [],
+    result: buildPreview(cfg),
     techId: t.id,
-    explain: `${TECHNIQUE_BY_ID[good.id].name} beats ${t.name}: ${good.why} From out of distance the same action falls short.`,
+    explain: `Advance first to enter lunge distance, then deceive ${t.name}. ${TECHNIQUE_BY_ID[good.id].name}: ${good.why}`,
+    build,
   };
 }
 
@@ -117,6 +119,8 @@ export default function Drills() {
   const [round, setRound] = useState(0);
   const [correct, setCorrect] = useState(0);
   const [answer, setAnswer] = useState<number | null>(null);
+  const [answerCorrect, setAnswerCorrect] = useState(false);
+  const [sequence, setSequence] = useState<string[]>([]);
   const [current, setCurrent] = useState<Round | null>(null);
   const [left, setLeft] = useState(1);
   const rng = useRef<Rng>(mulberry32(42));
@@ -129,6 +133,8 @@ export default function Drills() {
     const rd = makeRound(drill, rng.current, progress.boxes, cfg);
     setCurrent(rd);
     setAnswer(null);
+    setAnswerCorrect(false);
+    setSequence([]);
     setRound(r);
     setLeft(1);
     player.setResult(rd.result);
@@ -146,7 +152,29 @@ export default function Drills() {
     if (answer !== null || !current) return;
     setAnswer(i);
     const ok = i >= 0 && current.options[i].correct;
+    setAnswerCorrect(ok);
     if (ok) setCorrect((c) => c + 1);
+    progress.recordAnswer(current.techId, ok);
+  };
+  const moveCard = (index: number, direction: -1 | 1) => {
+    setSequence((cards) => {
+      const next = [...cards];
+      [next[index], next[index + direction]] = [next[index + direction], next[index]];
+      return next;
+    });
+  };
+  const submitSequence = () => {
+    if (answer !== null || !current?.build || sequence.length !== 2) return;
+    const ok = isBuildSequenceCorrect(current.build, sequence);
+    const result = playBuildSequence(current.build, sequence, cfg);
+    setCurrent({ ...current, result });
+    player.setResult(result);
+    player.speed = 0.5;
+    player.loop = false;
+    player.playing = true;
+    setAnswer(0);
+    setAnswerCorrect(ok);
+    if (ok) setCorrect((n) => n + 1);
     progress.recordAnswer(current.techId, ok);
   };
   // Counter It: the answer window shrinks every round.
@@ -191,8 +219,9 @@ export default function Drills() {
         current && (
           <div className={s.split}>
             <div className={s.panel}>
-              <Stage player={player} label="Drill demonstration without labels" className={s.stage} />
-              {drill === 'call' && <Lamps result={current.result} tick={tick} />}
+              <Stage player={player} label={current.build ? answer === null ? 'Tactical setup: both fencers waiting outside lunge distance' : 'Your assembled action sequence against the described partner' : 'Drill demonstration without labels'} className={s.stage} />
+              {(drill === 'call' || (drill === 'build' && answer !== null)) && <Lamps result={current.result} tick={tick} />}
+              {drill === 'build' && answer !== null && <><Transport player={player} /><RefereeCall result={current.result} /></>}
             </div>
             <div className={s.panel}>
               <p className={s.muted}>
@@ -204,19 +233,51 @@ export default function Drills() {
                   <div className={s.meterFill} style={{ width: `${left * 100}%` }} />
                 </div>
               )}
-              <ul className={s.list}>
-                {current.options.map((o, i) => (
-                  <li key={i}>
-                    <button type="button" className={`${s.option} ${answer !== null && o.correct ? s.correct : ''} ${answer === i && !o.correct ? s.wrong : ''}`} onClick={() => choose(i)} disabled={answer !== null}>
-                      {o.label}
-                      {answer !== null && o.correct ? ' (correct)' : ''}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              {current.build ? (
+                <>
+                  <p className={s.muted}>Choose two action cards in order, then submit. You can reorder or remove cards before submitting.</p>
+                  <h3 className={s.sectionTitle}>Your sequence ({sequence.length}/2)</h3>
+                  {sequence.length === 0 ? <p className={s.muted}>No actions selected yet.</p> : (
+                    <ol className={s.list} aria-label="Your action sequence">
+                      {sequence.map((id, index) => (
+                        <li key={id}>
+                          <p>{index + 1}. {TECHNIQUE_BY_ID[id].name}</p>
+                          <div className={s.row}>
+                            <button type="button" className={s.btn} disabled={answer !== null || index === 0} aria-label={`Move ${TECHNIQUE_BY_ID[id].name} earlier`} onClick={() => moveCard(index, -1)}>Move earlier</button>
+                            <button type="button" className={s.btn} disabled={answer !== null || index === sequence.length - 1} aria-label={`Move ${TECHNIQUE_BY_ID[id].name} later`} onClick={() => moveCard(index, 1)}>Move later</button>
+                            <button type="button" className={s.btn} disabled={answer !== null} aria-label={`Remove ${TECHNIQUE_BY_ID[id].name}`} onClick={() => setSequence((cards) => cards.filter((_, i) => i !== index))}>Remove</button>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                  <h3 className={s.sectionTitle}>Available actions</h3>
+                  <ul className={s.list} aria-label="Action cards">
+                    {current.build.cards.map((id) => (
+                      <li key={id}>
+                        <button type="button" className={s.option} data-action-id={id} disabled={answer !== null || sequence.length === 2 || sequence.includes(id)} onClick={() => setSequence((cards) => [...cards, id])}>
+                          {TECHNIQUE_BY_ID[id].name} <span className={s.muted}>· {TECHNIQUE_BY_ID[id].category === 'footwork' ? 'footwork' : 'blade action'}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <button type="button" className={`${s.btn} ${s.primary}`} disabled={answer !== null || sequence.length !== 2} onClick={submitSequence}>Submit sequence</button>
+                </>
+              ) : (
+                <ul className={s.list}>
+                  {current.options.map((o, i) => (
+                    <li key={i}>
+                      <button type="button" className={`${s.option} ${answer !== null && o.correct ? s.correct : ''} ${answer === i && !o.correct ? s.wrong : ''}`} onClick={() => choose(i)} disabled={answer !== null}>
+                        {o.label}
+                        {answer !== null && o.correct ? ' (correct)' : ''}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {answer !== null && (
                 <div aria-live="polite" className={s.call}>
-                  <p>{answer >= 0 && current.options[answer].correct ? 'Correct.' : answer < 0 ? 'Time is up.' : 'Not quite.'}</p>
+                  <p>{answerCorrect ? 'Correct.' : answer < 0 ? 'Time is up.' : 'Not quite.'}</p>
                   <p className={s.muted}>{current.explain}</p>
                   {round < ROUNDS ? (
                     <button type="button" className={`${s.btn} ${s.primary}`} onClick={() => next(round + 1)} autoFocus>

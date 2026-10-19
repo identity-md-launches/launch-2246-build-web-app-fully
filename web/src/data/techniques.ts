@@ -467,7 +467,9 @@ function blade(id: string, name: string, french: string, aliases: string[], line
     id, name, french, aliases, lines, desc, when, steps, errors, by, pre,
     foot: sim.finalLine ? 'lunge' : undefined,
     sim,
-    tactical: `${name} ${sim.role === 'bladePrep' ? 'prepares an action without committing; keep it short so it is not attacked.' : 'controls the opponent\'s blade before the hit; do it with the forte on the faible.'}`,
+    tactical: sim.role === 'derobe'
+      ? 'Keep the arm straight and evade the attempted blade contact with the fingers; keep the point threatening the target.'
+      : `${name} ${sim.role === 'bladePrep' ? 'prepares an action without committing; keep it short so it is not attacked.' : 'controls the opponent\'s blade before the hit; do it with the forte on the faible.'}`,
     row: sim.role === 'bladeAttack' ? 'A successful attack on the blade gives priority and removes a point in line.' : sim.role === 'derobe' ? 'A dérobement keeps the point in line and its priority.' : 'Blade preparation carries no priority.',
     partner: sim.role === 'derobe' ? 'BL04' : sim.role === 'bladeAttack' ? 'CT03' : 'FW01',
   };

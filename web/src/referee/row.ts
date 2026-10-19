@@ -172,8 +172,8 @@ export function decide(events: RowEvent[], tempo: number): Verdict & { outcome: 
     if (!h.valid) return v('offTarget', h.side);
     // Rule 10: a single valid light scores whatever the priority.
     const lab = labelFor(h.side);
-    if (lab === 'counterattack') return v(st.counter[h.side]?.opposition ? 'timeHit' : 'counterattackAlone', h.side);
-    return v(lab, h.side);
+    const call = v(lab === 'counterattack' ? st.counter[h.side]?.opposition ? 'timeHit' : 'counterattackAlone' : lab, h.side);
+    return { ...call, rule: 10, why: `Only the ${h.side} valid light registered, so that fencer scores whatever the priority (rule 10).` };
   }
 
   // Both lights on.

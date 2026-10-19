@@ -1,10 +1,12 @@
 .hero {
   display: grid;
+  min-width: 0;
   gap: var(--space-4);
   align-items: center;
 }
 .copy {
   display: grid;
+  min-width: 0;
   gap: var(--space-3);
 }
 .title {

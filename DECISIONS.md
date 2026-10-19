@@ -1,0 +1,15 @@
+# Revision decisions
+
+The authoritative build prompt was downloaded before changes; its 100 Section 6 IDs were printed. This is a revision of the supplied application, so its source layout, presentation and unrelated behavior are retained.
+
+- Root build entry: the supplied tree contained `web/` source and an existing static export but lacked root tooling, lockfile, tests and documentation. Root configuration now builds the existing `web/src/` directly into `dist/`, preserving the accepted source layout while providing the required root commands.
+- Physical truth: the scoring box's geometry-registered, lockout-filtered contacts are the only hit events used by the referee. Intention-level claims remain diagnostic data. A successful parry requires both arm rigs to reach a shared blade contact point, verified on their segmented geometry.
+- Lunge: solve the canonical pose against the existing anthropometric dimensions and two-bone IK, including lateral pelvis placement so the front knee stacks over the ankle in 3D. A tiny knee bend avoids a singular fully extended chain; the tested rear flexion is below 1° with a vertical front shin, a flat rear foot and 12° lean. Existing foot placements and lunge-family clips remain shared.
+- Counter scenarios: reliability describes a tactical situation. Linked parries receive an attack into the line they close, with explicit setup captions; arbitrary unlisted pairings retain the attack's actual line. Riposte counters include the prerequisite parry rather than beginning with an unearned riposte.
+- Tempo: live inputs have their own incremental 120 Hz timeline, using the existing clips, geometry, legality and referee. Footwork and blade channels may overlap. A subsequent choice interrupts its own channel from the current pose. NPC actions wait for a sampled reaction deadline. Human mode has two live pads and an explicit keyboard-side selector, because a blind pass-device turn does not fit real-time input.
+- Build It: the authored situations require a preparation and a finish. Visitors choose and order two individual cards, may edit their order, and submit to grade. The submitted choices drive playback against the stated partner; an incorrect sequence does not play a correct-answer substitute.
+- Coaching: step cues use authored phase/marker timing and actual whole-demo parry, riposte and arrival events. A riposte instruction waits for the actual riposte slice.
+- Data stays local: progress, settings and phrase saves belong to local storage on the current browser. No wallet or backend was added.
+- Design review: preserve the accepted dark training-room system. Fix shared reflow and lamp foreground contrast. The probe's Home-nav kicker heuristic is a false positive; five existing weight requests remain a documented house-style observation rather than an unrelated redesign.
+
+M0–M9 were reviewed in place: root scaffold; rig/lunge; clips; geometry/scoring; referee regressions; technique data; Learn/counter interactions; phrase/Tempo integration; drills/persistence; production export, design and validation documentation. The revision does not replace those existing systems.

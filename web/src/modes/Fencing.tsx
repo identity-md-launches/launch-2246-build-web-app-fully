@@ -5,6 +5,7 @@ import { CATEGORY_LABEL, TECHNIQUE_BY_ID } from '../data/techniques';
 import { bandFor } from '../rig/dimensions';
 import { DEFAULT_CONFIG, PhraseSim, runPhrase, type PhraseConfig } from '../sim/phrase';
 import { mulberry32, type Rng } from '../sim/prng';
+import { replayTempo, TempoSession } from '../sim/tempo';
 import type { Choice, PhraseResult, Side, Timing } from '../sim/types';
 import { useProgress, type SavedPhrase } from '../store/progress';
 import { formatLength, useSettings } from '../store/settings';
@@ -128,6 +129,50 @@ const TEMPO_PAD: { label: string; key: string; choice: Choice }[] = [
 ];
 const COUNTER_OF: Record<string, string> = { PA01: 'PA10', PA02: 'PA09', PA03: 'PA11', PA04: 'PA12' };
 
+function TempoPad({ side, session, onAction }: { side: Side; session: TempoSession; onAction: (side: Side, choice: Choice) => void }) {
+  const settings = useSettings();
+  const legal = session.sim.legal(side);
+  const [foot, setFoot] = useState('');
+  const [blade, setBlade] = useState('');
+  const valid = (c: Choice) => (!c.foot || legal.foot.includes(c.foot)) && (!c.blade || legal.blade.includes(c.blade));
+  return (
+    <section className={s.panel} aria-label={`${side} fencer Tempo pad`}>
+      <h2 className={s.sectionTitle}>{side === 'left' ? 'Left fencer · red' : 'Right fencer · green'}</h2>
+      <p className={s.muted}>Tap or press an action while moving. Footwork and blade actions can overlap.</p>
+      <div className={s.grid} style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))' }}>
+        {TEMPO_PAD.map((p) => (
+          <button key={p.label} type="button" className={s.btn} disabled={!valid(p.choice)} onClick={() => onAction(side, p.choice)}>
+            {p.label} <span className={s.muted}>{p.key}</span>
+          </button>
+        ))}
+        {settings.quickSlots.map((id, i) => (
+          <button key={`${id}-${i}`} type="button" className={s.btn} disabled={!legal.blade.includes(id)} onClick={() => onAction(side, { blade: id })}>
+            {TECHNIQUE_BY_ID[id]?.name ?? id} <span className={s.muted}>{i + 1}</span>
+          </button>
+        ))}
+      </div>
+      <details style={{ marginBlockStart: 12 }}>
+        <summary>All legal actions</summary>
+        <div className={s.field}>
+          <label htmlFor={`tempo-foot-${side}`}>Footwork</label>
+          <select id={`tempo-foot-${side}`} className={s.input} style={{ minWidth: 0 }} value={legal.foot.includes(foot) ? foot : ''} onChange={(e) => setFoot(e.target.value)}>
+            <option value="">Keep current footwork</option>
+            {legal.foot.map((id) => <option key={id} value={id}>{TECHNIQUE_BY_ID[id].name}</option>)}
+          </select>
+        </div>
+        <div className={s.field}>
+          <label htmlFor={`tempo-blade-${side}`}>Blade action</label>
+          <select id={`tempo-blade-${side}`} className={s.input} style={{ minWidth: 0 }} value={legal.blade.includes(blade) ? blade : ''} onChange={(e) => setBlade(e.target.value)}>
+            <option value="">Keep current blade action</option>
+            {legal.blade.map((id) => <option key={id} value={id}>{TECHNIQUE_BY_ID[id].name}</option>)}
+          </select>
+        </div>
+        <button type="button" className={s.btn} disabled={!(legal.foot.includes(foot) || legal.blade.includes(blade))} onClick={() => onAction(side, { foot: legal.foot.includes(foot) ? foot : undefined, blade: legal.blade.includes(blade) ? blade : undefined })}>Start selected actions</button>
+      </details>
+    </section>
+  );
+}
+
 export default function Fencing() {
   const settings = useSettings();
   const progress = useProgress();
@@ -149,6 +194,10 @@ export default function Fencing() {
   const model = useRef(new OpponentModel());
   const seed = useRef(Date.now() % 100000);
   const positions = useRef<{ leftX: number; rightX: number }>({ leftX: -2.25, rightX: 2.25 });
+  const tempoRef = useRef<TempoSession | null>(null);
+  const tempoStartedAt = useRef(0);
+  const tempoFinished = useRef(false);
+  const [keyboardSide, setKeyboardSide] = useState<Side>('left');
   const tick = usePlayerTick(player);
 
   const newSim = useCallback(() => {
@@ -163,10 +212,15 @@ export default function Fencing() {
     };
     cfgRef.current = cfg;
     simRef.current = new PhraseSim(cfg);
+    tempoRef.current = setup.mode === 'tempo' ? new TempoSession(cfg, setup.opponent, model.current) : null;
+    tempoStartedAt.current = performance.now();
+    tempoFinished.current = false;
+    player.onEnd = undefined;
     slices.current = [];
-    const r = runPhrase(cfg, []);
+    const r = tempoRef.current ? tempoRef.current.sim.result() : runPhrase(cfg, []);
     setResult(r);
     player.setResult(r);
+    player.playing = false;
     player.limit = 1;
     player.loop = false;
     whistle();
@@ -257,17 +311,61 @@ export default function Fencing() {
     }
   };
 
+  const publishTempo = useCallback((session: TempoSession) => {
+    const r = session.sim.result();
+    player.result = r;
+    player.tick = session.sim.tick;
+    player.playing = false; // The live 120 Hz clock drives Tempo; replay uses Player's clock.
+    player.limit = Infinity;
+    setResult(r);
+    simRef.current = session.sim.context();
+    player.emit();
+    if (session.sim.ended && !tempoFinished.current) {
+      tempoFinished.current = true;
+      finishPhrase(r);
+    }
+  }, [finishPhrase, player]);
+
+  useEffect(() => {
+    if (setup.mode !== 'tempo' || stage !== 'pick' || !tempoRef.current) return;
+    const session = tempoRef.current;
+    let raf = 0;
+    let lastPublish = 0;
+    const advance = (now: number) => {
+      session.advanceTo(Math.floor((now - tempoStartedAt.current) * 120 / 1000));
+      if (session.sim.tick / 120 >= clock) session.sim.halt('Period time: halte!');
+      // Stage reads the live result directly each render frame; HTML refreshes at 15 Hz.
+      player.result = session.sim.result();
+      player.tick = session.sim.tick;
+      if (now - lastPublish >= 66 || session.sim.ended) {
+        lastPublish = now;
+        publishTempo(session);
+      }
+      if (!session.sim.ended) raf = requestAnimationFrame(advance);
+    };
+    raf = requestAnimationFrame(advance);
+    return () => cancelAnimationFrame(raf);
+  }, [setup.mode, stage, clock, player, publishTempo]);
+
+  const tempoInput = useCallback((side: Side, choice: Choice) => {
+    const session = tempoRef.current;
+    if (setup.mode !== 'tempo' || stage !== 'pick' || !session || session.sim.ended) return;
+    const at = Math.floor((performance.now() - tempoStartedAt.current) * 120 / 1000);
+    if (session.input(side, choice, at)) publishTempo(session);
+  }, [setup.mode, stage, publishTempo]);
+
   // Tempo Mode: keys trigger actions immediately; the NPC reacts with its reaction time.
   const held = useRef(new Set<string>());
   useEffect(() => {
-    if (setup.mode !== 'tempo' || (stage !== 'pick' && stage !== 'play')) return;
+    if (setup.mode !== 'tempo' || stage !== 'pick') return;
     const down = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.closest('input, textarea, select')) return;
       const k = e.key.toLowerCase();
+      if (e.repeat) return;
       held.current.add(k);
       let choice: Choice | null = null;
-      if (k === ' ') choice = e.shiftKey ? { foot: 'FW15', blade: 'AT02' } : { foot: 'FW04', blade: 'AT02' };
+      if (k === settings.keys.lunge) choice = e.shiftKey ? { foot: 'FW15', blade: 'AT02' } : { foot: 'FW04', blade: 'AT02' };
       else if (k === settings.keys.retreat) choice = { foot: 'FW03' };
       else if (k === settings.keys.advance) choice = { foot: 'FW02' };
       else {
@@ -276,15 +374,9 @@ export default function Fencing() {
         const n = Number(k);
         if (n >= 1 && n <= 9) choice = { blade: settings.quickSlots[n - 1] };
       }
-      if (!choice || stage !== 'pick') return;
+      if (!choice) return;
       e.preventDefault();
-      const sim = simRef.current!;
-      const legal = sim.legal('left');
-      if (choice.blade && !legal.blade.includes(choice.blade)) choice = { ...choice, blade: undefined };
-      if (choice.foot && !legal.foot.includes(choice.foot)) choice = { ...choice, foot: undefined };
-      if (!choice.foot && !choice.blade) return;
-      const npc = npcChoose(sim, 'right', setup.opponent === 'human' ? 'club' : setup.opponent, rngRef.current, model.current, settings.tempoSec);
-      resolve({ ...choice, timing: 'early' }, npc);
+      tempoInput(setup.opponent === 'human' ? keyboardSide : 'left', choice);
     };
     const up = (e: KeyboardEvent) => held.current.delete(e.key.toLowerCase());
     window.addEventListener('keydown', down);
@@ -293,7 +385,7 @@ export default function Fencing() {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
     };
-  }, [setup, stage, settings, resolve]);
+  }, [setup, stage, settings, tempoInput, keyboardSide]);
 
   const nextPhrase = () => {
     if (clock <= 0) {
@@ -312,12 +404,13 @@ export default function Fencing() {
 
   const save = () => {
     if (!result) return;
-    const p: SavedPhrase = { id: `${Date.now()}`, name: `${result.verdict.callFr} (${new Date().toLocaleString()})`, cfg: cfgRef.current, slices: slices.current.slice(), call: result.verdict.callEn };
+    const tempo = setup.mode === 'tempo' ? tempoRef.current : null;
+    const p: SavedPhrase = { id: `${Date.now()}`, name: `${result.verdict.callFr} (${new Date().toLocaleString()})`, cfg: cfgRef.current, slices: slices.current.slice(), call: result.verdict.callEn, ...(tempo ? { tempoActions: tempo.sim.actions.slice(), endTick: tempo.sim.tick } : {}) };
     progress.savePhrase(p);
     setSaved(true);
   };
   const replaySaved = (p: SavedPhrase) => {
-    const r = runPhrase(p.cfg, p.slices);
+    const r = p.tempoActions ? replayTempo(p.cfg, p.tempoActions, p.endTick ?? p.tempoActions.at(-1)?.tick ?? 0) : runPhrase(p.cfg, p.slices);
     setResult(r);
     player.setResult(r, 0);
     player.speed = 0.5;
@@ -334,7 +427,7 @@ export default function Fencing() {
       <div className={s.page}>
         <div>
           <h1 className={s.pageTitle}>Fencing Mode</h1>
-          <p className={s.lead}>Two fencers on a regulation piste. Each tempo slice, both sides choose blind; the simulation resolves it and the referee calls the phrase.</p>
+          <p className={s.lead}>Two fencers on a regulation piste. Choose blind in Phrase Mode, or start actions as you press in real-time Tempo Mode.</p>
         </div>
         <div className={s.panel}>
           <div className={s.field}>
@@ -380,7 +473,7 @@ export default function Fencing() {
           </div>
           {setup.mode === 'tempo' && (
             <p className={s.muted}>
-              Tempo keys: A/D retreat and advance, Space lunge, Shift+Space flèche, Q/E/Z/C quarte, sixte, septime, octave; hold R for the counter-parry; 1 to 9 for your quick slots. Touch screens use the pad.
+              Tempo keys: A/D retreat and advance, Space lunge, Shift+Space flèche, Q/E/Z/C quarte, sixte, septime, octave; hold R for the counter-parry; 1 to 9 for your quick slots. Touch screens use the pad. Human Tempo uses two live pads; choose which fencer the keyboard controls.
             </p>
           )}
           <button type="button" className={`${s.btn} ${s.primary}`} onClick={startBout}>
@@ -400,7 +493,7 @@ export default function Fencing() {
           <span style={{ color: 'var(--color-left-text)' }}>{score.left}</span> : <span style={{ color: 'var(--color-right-text)' }}>{score.right}</span>
         </h1>
         <span className={s.muted}>
-          Period {period}/{BOUT[setup.length].periods} · {mmss(clock)} · {setup.mode === 'tempo' ? 'Tempo Mode' : 'Phrase Mode'} · vs {setup.opponent}
+          Period {period}/{BOUT[setup.length].periods} · {mmss(Math.max(0, clock - (setup.mode === 'tempo' && stage === 'pick' ? tick / 120 : 0)))} · {setup.mode === 'tempo' ? 'Tempo Mode' : 'Phrase Mode'} · vs {setup.opponent}
         </span>
         <button type="button" className={s.btn} onClick={() => setStage('setup')}>
           End bout
@@ -423,7 +516,7 @@ export default function Fencing() {
         <div className={s.panel}>
           <Stage player={player} camera={camera} label="Fencing piste: red fencer on the left, green on the right" className={s.stage} />
           <Captions result={result} player={player} />
-          <Lamps result={stage === 'end' || stage === 'boutEnd' ? result : null} tick={tick} />
+          <Lamps result={setup.mode === 'tempo' || stage === 'end' || stage === 'boutEnd' ? result : null} tick={tick} />
           <CameraBar value={camera} onChange={setCamera} />
           {(stage === 'end' || stage === 'boutEnd') && result && (
             <>
@@ -435,27 +528,21 @@ export default function Fencing() {
         </div>
         <div>
           {stage === 'pick' && sim && setup.mode === 'phrase' && <Picker key={`${picker}-${sim.sliceCount}`} side={picker} sim={sim} onLock={lockIn} human={human(picker)} />}
-          {stage === 'pick' && sim && setup.mode === 'tempo' && (
-            <div className={s.panel}>
-              <h2 className={s.sectionTitle}>Tempo pad</h2>
-              <p className={s.muted}>Press a key or tap an action: it starts at once and the NPC reacts at its own speed.</p>
-              <div className={s.grid} style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))' }}>
-                {TEMPO_PAD.map((p) => (
-                  <button key={p.label} type="button" className={s.btn} onClick={() => resolve({ ...p.choice, timing: 'early' }, npcChoose(sim, 'right', setup.opponent === 'human' ? 'club' : setup.opponent, rngRef.current, model.current, settings.tempoSec))}>
-                    {p.label} <span className={s.muted}>{p.key}</span>
-                  </button>
-                ))}
-                {sim.legal('left').blade.filter((id) => id.startsWith('RR')).slice(0, 3).map((id) => (
-                  <button key={id} type="button" className={s.btn} onClick={() => resolve({ blade: id, timing: 'early' }, npcChoose(sim, 'right', setup.opponent === 'human' ? 'club' : setup.opponent, rngRef.current, model.current, settings.tempoSec))}>
-                    {TECHNIQUE_BY_ID[id].name}
-                  </button>
-                ))}
+          {stage === 'pick' && setup.mode === 'tempo' && tempoRef.current && (
+            <>
+              <div className={s.panel}>
+                <h2 className={s.sectionTitle}>Tempo pad</h2>
+                <p className={s.muted}>Live · {(tick / 120).toFixed(2)} s. Actions start at their press time. {setup.opponent === 'human' ? 'Both fencers are human-controlled.' : `The ${setup.opponent} NPC reacts after its own delay.`}</p>
+                {setup.opponent === 'human' && <Segmented label="Keyboard fencer" value={keyboardSide} options={[{ value: 'left', label: 'Left · red' }, { value: 'right', label: 'Right · green' }]} onChange={setKeyboardSide} />}
+                <button type="button" className={s.btn} onClick={() => { tempoRef.current!.sim.halt(); publishTempo(tempoRef.current!); }}>Halt phrase</button>
               </div>
-            </div>
+              <TempoPad side="left" session={tempoRef.current} onAction={tempoInput} />
+              {setup.opponent === 'human' && <TempoPad side="right" session={tempoRef.current} onAction={tempoInput} />}
+            </>
           )}
           {stage === 'play' && (
             <div className={s.panel}>
-              <p aria-live="polite">Resolving the tempo slice…</p>
+              <p aria-live="polite">Playing the chosen phrase slice…</p>
               <button type="button" className={s.btn} onClick={() => (player.seek(player.end), player.onEnd?.())}>
                 Skip animation
               </button>
@@ -475,7 +562,7 @@ export default function Fencing() {
                     New bout
                   </button>
                 )}
-                <button type="button" className={s.btn} onClick={save} disabled={saved || !slices.current.length}>
+                <button type="button" className={s.btn} onClick={save} disabled={saved || (!slices.current.length && !tempoRef.current?.sim.actions.length)}>
                   {saved ? 'Saved' : 'Save phrase'}
                 </button>
               </div>

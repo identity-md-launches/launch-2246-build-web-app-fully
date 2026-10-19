@@ -1,5 +1,7 @@
 import type { Position } from '../data/types';
 import type { V3 } from '../rig/vec';
+import { makeRig } from '../rig/dimensions';
+import { twoBoneIk } from '../rig/ik';
 
 /**
  * Pose parameters are authored for a 1.78 m right-hander in a local frame where +x points at the
@@ -80,9 +82,31 @@ export const EXTENSIONS: Record<string, UpperPose> = {
   lift: { hand: [0.34, -0.06, 0.02], tip: [0.5, 0.86, -0.02], pron: 90 },
 };
 
+/** Solve the authored 1.78 m pose against the same hip offsets and leg IK as the rig.
+ * Rear ankle stays planted; a nearly straight rear chain fixes pelvis height. Find the
+ * forward pelvis position that puts the front knee vertically above its ankle. */
+function lungePelvis(): Pick<LowerPose, 'pelvisX' | 'pelvisDrop' | 'sideShift'> {
+  const r = makeRig();
+  const hipOffset = r.hipHalf / Math.SQRT2;
+  // Stack the weapon-side hip over the front foot's lateral plane too, not just
+  // its side-view projection. The bladed pelvis otherwise leaves a sideways shin tilt.
+  const sideShift = 0.02 - hipOffset;
+  const rearReach = r.thigh + r.shin - 1e-5;
+  const heightAt = (x: number) => r.ankleHeight + Math.sqrt(rearReach ** 2 - (x - hipOffset + 0.22) ** 2 - (sideShift - hipOffset + 0.02) ** 2);
+  let lo = 0.35;
+  let hi = 0.55;
+  for (let i = 0; i < 48; i++) {
+    const x = (lo + hi) / 2;
+    const front = twoBoneIk([x + hipOffset, heightAt(x), hipOffset + sideShift], [0.91, r.ankleHeight, 0.02], r.thigh, r.shin, [1, 0.1, 0]);
+    if (front.mid[0] > front.end[0]) hi = x;
+    else lo = x;
+  }
+  const pelvisX = (lo + hi) / 2;
+  return { pelvisX, pelvisDrop: r.hipHeight - heightAt(pelvisX), sideShift };
+}
+
 export const LUNGE_LOWER: LowerPose = {
-  pelvisX: 0.47,
-  pelvisDrop: 0.33,
+  ...lungePelvis(),
   lean: 12,
   frontX: 0.91,
   frontLift: 0,
@@ -90,7 +114,6 @@ export const LUNGE_LOWER: LowerPose = {
   rearX: -0.22,
   rearLift: 0,
   rearArm: -1,
-  sideShift: 0,
 };
 
 export function mirrorZ(v: V3, handed: 1 | -1): V3 {

@@ -6,7 +6,7 @@ import { makeRig, type RigDims } from '../rig/dimensions';
 import { buildSkeleton, type FencerFrame } from '../rig/skeleton';
 import { add, norm, scale, sub, type V3 } from '../rig/vec';
 import { decide, walkPriority } from '../referee/row';
-import { arrivalDir, canReach, measureBetween, targetPointFor, tipContact } from './geometry';
+import { arrivalDir, bothFeetBeyondEnd, canReach, contactFrames, measureBetween, targetPointFor, tipContact } from './geometry';
 import { fnv1a } from './prng';
 import {
   LOCKOUT_TICKS,
@@ -141,7 +141,13 @@ export function parryOutcome(att: SimSpec, par: { type: ParryType; positions: Po
   if (att.angulated && par.type !== 'opposition') return 'evaded';
   const lat = att.evadeLateral ?? 0;
   const circ = att.evadeCircular ?? 0;
-  if (par.type === 'circular') return circ >= 1 ? 'evaded' : 'parried';
+  if (par.type === 'circular') {
+    if (circ >= 1) return 'evaded';
+    // Deceptions have their own circular-parry rule. A straight thrust must still
+    // finish in the line closed by the circle's ending position (spec 5.4).
+    if (lat > 0 || att.changesLine) return 'parried';
+    return POSITION_CLOSES[par.positions[par.positions.length - 1]]?.includes(fin) ? 'parried' : 'wrongLine';
+  }
   if (par.type === 'semicircular' || par.type === 'diagonal') {
     if (fin.startsWith('low')) return 'parried';
     return lat === 0 && closes.has(fin) ? 'parried' : 'evaded';
@@ -445,11 +451,16 @@ export class PhraseSim {
       if (d?.role === 'parry' && d.spec.parry) {
         const late = d.timing === 'late';
         const res = parryOutcome(a.spec, d.spec.parry, a.role === 'counter');
-        if (res === 'parried' && !late) {
+        const contactTick = arrival[s] - 3;
+        const contact = res === 'parried' && !late ? contactFrames(this.tracks[s].frame(contactTick, T), this.tracks[o].frame(contactTick, T), this.tracks[s].rig, this.tracks[o].rig) : null;
+        if (contact) {
           ok = false;
           parryBy = o;
           parryTick = arrival[s] - 3;
-          sideEvents.push({ t: parryTick, kind: 'parry', side: o, success: true });
+          for (const [side, frame] of [[s, contact.attacker], [o, contact.defender]] as [Side, FencerFrame][]) {
+            this.tracks[side].ik.set(parryTick, { ...frame.ik!, bend: 0, whip: 0 });
+          }
+          sideEvents.push({ t: parryTick, kind: 'parry', side: o, success: true, point: contact.point });
           notes.push(`${d.blade?.name ?? 'The parry'} caught ${a.blade?.name ?? a.label}.`);
           // Deflect the attacker's blade at the contact.
           const tr = this.tracks[s];
@@ -457,7 +468,7 @@ export class PhraseSim {
           tr.addUpper(parryTick, transitionUpper('deflected', from, { hand: from.hand, tip: [1, 0.25, from.tip[2] < 0 ? -0.6 : 0.6], pron: from.pron }, 0.3), 'deflected');
         } else {
           sideEvents.push({ t: arrival[s] - 2, kind: 'parry', side: o, success: false });
-          notes.push(res === 'evaded' ? `${a.blade?.name ?? a.label} deceived ${d.blade?.name ?? 'the parry'}.` : late ? 'The parry was late.' : `${d.blade?.name ?? 'The parry'} closed the wrong line.`);
+          notes.push(res === 'evaded' ? `${a.blade?.name ?? a.label} deceived ${d.blade?.name ?? 'the parry'}.` : late ? 'The parry was late.' : res === 'wrongLine' ? `${d.blade?.name ?? 'The parry'} closed the wrong line.` : 'The blades were out of reach: no parry contact.');
         }
       }
       if (ok && d?.role === 'counter' && d.spec.opposition && a.role !== 'counter') {
@@ -567,10 +578,10 @@ export class PhraseSim {
       this.ended = true;
     }
     for (const s of ['left', 'right'] as Side[]) {
-      const rear = this.skeleton(s, endTick).joints.heelR[0];
-      if (Math.abs(rear) > 7 && !anyHit) {
-        sideEvents.push({ t: endTick, kind: 'endLine', side: s });
-        this.captions.push({ t: endTick, text: 'Both feet over the end line: penalty touch (rule 11).' });
+      const crossingTick = !anyHit ? Array.from({ length: endTick - S + 1 }, (_, i) => S + i).find((t) => bothFeetBeyondEnd(this.skeleton(s, t))) : undefined;
+      if (crossingTick !== undefined) {
+        sideEvents.push({ t: crossingTick, kind: 'endLine', side: s });
+        this.captions.push({ t: crossingTick, text: 'Both feet over the end line: penalty touch (rule 11).' });
         this.ended = true;
       }
     }
@@ -663,13 +674,19 @@ export class PhraseSim {
       whiteLeft: lit.some((r) => r.side === 'left' && !r.valid),
       whiteRight: lit.some((r) => r.side === 'right' && !r.valid),
     };
-    const verdict = decide(this.events, T);
-    const pr = walkPriority(this.events, T);
+    // Intentions are useful diagnostics, but only geometry-confirmed contacts inside
+    // the scoring box's lockout window may reach the referee or priority explanation.
+    const scoringEvents: RowEvent[] = [
+      ...this.events.filter((e) => e.kind !== 'hit'),
+      ...lit.map((r): RowEvent => ({ t: r.tick, kind: 'hit', side: r.side, valid: r.valid })),
+    ].sort((a, b) => a.t - b.t);
+    const verdict = decide(scoringEvents, T);
+    const pr = walkPriority(scoringEvents, T);
     if (verdict.scorer || lit.length) this.captions.push({ t: (lockoutStart ?? lastEvent) + LOCKOUT_TICKS, text: `${verdict.callFr} (${verdict.callEn})` });
     else this.captions.push({ t: lastEvent + 6, text: `${verdict.callFr} (${verdict.callEn})` });
     const r6 = (n: number) => Math.round(n * 1e4) / 1e4;
     const digest = JSON.stringify({
-      e: this.events,
+      e: scoringEvents,
       reg: registered,
       v: verdict.callFr,
       f: frames.filter((_, i) => i % 6 === 0).map((f) => [f.left.lower.pelvisX, f.left.upper.hand, f.right.lower.pelvisX, f.right.upper.hand].flat().map((x) => r6(x as number))),
@@ -678,7 +695,7 @@ export class PhraseSim {
       seed: this.cfg.seed,
       tempoTicks: T,
       frames,
-      events: [...this.events].sort((a, b) => a.t - b.t),
+      events: scoringEvents,
       claimed: this.claimed,
       registered,
       lights,

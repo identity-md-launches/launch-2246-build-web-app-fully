@@ -321,6 +321,18 @@ function Ruler({ player }: { player: Player }) {
   );
 }
 
+/** The same verified world point used by the parry event and phrase timeline. */
+function BladeContact({ player }: { player: Player }) {
+  const ref = useRef<THREE.Mesh>(null);
+  useFrame(() => {
+    if (!ref.current) return;
+    const contact = player.result?.events.find((e) => e.kind === 'parry' && e.success && e.point && Math.abs(e.t - player.tick) <= 5);
+    ref.current.visible = !!contact;
+    if (contact?.kind === 'parry' && contact.point) at(ref.current, contact.point);
+  });
+  return <mesh ref={ref} visible={false}><sphereGeometry args={[0.025, 12, 12]} /><meshBasicMaterial color="#8fb0ff" /></mesh>;
+}
+
 function CameraRig({ player, preset, reduced }: { player: Player; preset: CameraPreset; reduced: boolean }) {
   const { camera } = useThree();
   const heights = useHeights();
@@ -406,6 +418,7 @@ export function Stage({ player, camera = 'referee', overlays = DEFAULT_OVERLAYS,
         {overlays.trail && <Trail player={player} side="right" />}
         {overlays.quadrants && <Quadrants player={player} side="right" />}
         {overlays.ruler && <Ruler player={player} />}
+        {overlays.zones && <BladeContact player={player} />}
         <CameraRig player={player} preset={camera} reduced={reduced} />
         {camera === 'orbit' && <OrbitControls target={[0, 1, 0]} enablePan={false} minDistance={1.5} maxDistance={12} />}
       </Canvas>

@@ -13,6 +13,7 @@ import { Player, usePlayerTick } from '../ui/player';
 import { DEFAULT_OVERLAYS, Stage, type CameraPreset, type GhostMode, type OverlayFlags } from '../ui/Stage';
 import s from '../ui/ui.module.css';
 import { baseConfig, demoFor } from './demo';
+import { activeExecutionStep, executionCues } from './coaching';
 
 /** Subsequence fuzzy match; lower score is better, -1 means no match. */
 export function fuzzyScore(query: string, text: string): number {
@@ -123,9 +124,8 @@ function TechniqueView({ t }: { t: Technique }) {
   }, [result]);
   const tick = usePlayerTick(player);
   const T = result.tempoTicks;
-  const first = result.slices[0];
-  const span = Math.max(1, (first?.end ?? result.endTick) - (first?.start ?? 0));
-  const activeStep = Math.min(t.steps.length - 1, Math.floor((tick / span) * t.steps.length));
+  const stepCues = useMemo(() => executionCues(t, result), [t, result]);
+  const activeStep = activeExecutionStep(stepCues, tick);
   const phases = t.phases.map((p) => ({ name: p.name, start: p.start * T, end: p.end * T }));
   const markers = Object.entries(t.syncMarkers).map(([k, v]) => ({ t: v * T, label: k }));
   const rigL = makeRig(settings.heightLeft);

@@ -54,9 +54,9 @@ function lungeKeys(depth = 1, start = 0, dur = 1.2): Key<LowerPose>[] {
   return [
     { t: start, pose: L({}) },
     { t: start + 0.25 * dur, pose: L({ frontLift: 0.0, frontPitch: 8, lean: 4 }) },
-    { t: start + 0.5 * dur, pose: L({ frontX: G.frontX + (fx - G.frontX) * 0.45, frontLift: 0.09, frontPitch: 28, pelvisX: LUNGE_LOWER.pelvisX * depth * 0.4, pelvisDrop: 0.18, rearArm: -0.4, lean: 6 }), ease: 'out' },
-    { t: start + 0.8 * dur, pose: L({ frontX: fx, frontPitch: 18, pelvisX: LUNGE_LOWER.pelvisX * depth * 0.95, pelvisDrop: G.pelvisDrop + (LUNGE_LOWER.pelvisDrop - G.pelvisDrop) * depth, rearArm: -1 * depth, lean: 4 + 8 * depth }), ease: 'in' },
-    { t: start + dur, pose: L({ frontX: fx, frontPitch: 0, pelvisX: LUNGE_LOWER.pelvisX * depth, pelvisDrop: G.pelvisDrop + (LUNGE_LOWER.pelvisDrop - G.pelvisDrop) * depth, rearArm: -1 * depth, lean: 4 + 8 * depth }), ease: 'out' },
+    { t: start + 0.5 * dur, pose: L({ frontX: G.frontX + (fx - G.frontX) * 0.45, frontLift: 0.09, frontPitch: 28, pelvisX: LUNGE_LOWER.pelvisX * depth * 0.4, pelvisDrop: 0.18, sideShift: LUNGE_LOWER.sideShift * depth * 0.4, rearArm: -0.4, lean: 6 }), ease: 'out' },
+    { t: start + 0.8 * dur, pose: L({ frontX: fx, frontPitch: 18, pelvisX: LUNGE_LOWER.pelvisX * depth, pelvisDrop: G.pelvisDrop + (LUNGE_LOWER.pelvisDrop - G.pelvisDrop) * depth, sideShift: LUNGE_LOWER.sideShift * depth, rearArm: -1 * depth, lean: 4 + 8 * depth }), ease: 'in' },
+    { t: start + dur, pose: L({ frontX: fx, frontPitch: 0, pelvisX: LUNGE_LOWER.pelvisX * depth, pelvisDrop: G.pelvisDrop + (LUNGE_LOWER.pelvisDrop - G.pelvisDrop) * depth, sideShift: LUNGE_LOWER.sideShift * depth, rearArm: -1 * depth, lean: 4 + 8 * depth }), ease: 'out' },
   ];
 }
 function jumpKeys(dir: 1 | -1, dist = 0.45, dur = 1): Key<LowerPose>[] {

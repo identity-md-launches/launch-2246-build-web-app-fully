@@ -39,7 +39,7 @@ export type RowEvent =
   | { t: number; kind: 'attackStart'; side: Side; finalStart: number; compound: boolean; label?: string }
   | { t: number; kind: 'bladeAttack'; side: Side; success: boolean }
   | { t: number; kind: 'derobe'; side: Side }
-  | { t: number; kind: 'parry'; side: Side; success: boolean }
+  | { t: number; kind: 'parry'; side: Side; success: boolean; point?: V3 }
   | { t: number; kind: 'short'; side: Side }
   | { t: number; kind: 'riposteStart'; side: Side }
   | { t: number; kind: 'renewalStart'; side: Side }

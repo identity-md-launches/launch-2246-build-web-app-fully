@@ -2,12 +2,16 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Choice } from '../sim/types';
 import type { PhraseConfig } from '../sim/phrase';
+import type { TempoAction } from '../sim/tempo';
 
 export interface SavedPhrase {
   id: string;
   name: string;
   cfg: PhraseConfig;
   slices: [Choice, Choice][];
+  /** Tempo phrases retain actual input ticks; legacy Phrase replays use slices. */
+  tempoActions?: TempoAction[];
+  endTick?: number;
   call: string;
 }
 
